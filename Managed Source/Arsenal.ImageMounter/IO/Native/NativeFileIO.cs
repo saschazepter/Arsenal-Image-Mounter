@@ -1378,6 +1378,10 @@ public static partial class NativeFileIO
         GuidPartitionTypes.WindowsRecovery
     ];
 
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public static string? SystemVolume => field
+        ??= Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System)) is { Length: > 0 } systemDrive
+        ? NativeFileIO.GetVolumeNameForVolumeMountPoint(systemDrive) : null;
 
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
     public static string[] OnlineDiskVolumes(string devicepath)
