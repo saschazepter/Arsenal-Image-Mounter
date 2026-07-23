@@ -49,7 +49,7 @@ public class CombinedMemoryStream : CompatibilityStream
         }
         else
         {
-            streams = new(inputStreams.Length);
+            streams = [with(inputStreams.Length)];
 
             Array.ForEach(inputStreams, AddMemory);
 

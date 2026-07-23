@@ -29,6 +29,12 @@ public class CombinedSeekStream : CompatibilityStream
 
     public bool Extendable { get; }
 
+    public bool IsDisposed { get; private set; }
+
+    public event EventHandler? Disposing;
+
+    public event EventHandler? Disposed;
+
     public IReadOnlyCollection<KeyValuePair<long, Stream>> BaseStreams => streams;
 
     public Stream CurrentBaseStream => current.Value;
@@ -58,7 +64,7 @@ public class CombinedSeekStream : CompatibilityStream
         }
         else
         {
-            streams = new(inputStreams.Length);
+            streams = [with(inputStreams.Length)];
 
             Array.ForEach(inputStreams, AddStream);
 
@@ -434,8 +440,14 @@ public class CombinedSeekStream : CompatibilityStream
         return offset;
     }
 
+    protected void OnDisposed(EventArgs e) => Disposing?.Invoke(this, e);
+
+    protected void OnDisposing(EventArgs e) => Disposed?.Invoke(this, e);
+
     protected override void Dispose(bool disposing)
     {
+        OnDisposing(EventArgs.Empty);
+
         if (streams != null)
         {
             if (disposing)
@@ -447,11 +459,17 @@ public class CombinedSeekStream : CompatibilityStream
         }
 
         base.Dispose(disposing);
+
+        OnDisposed(EventArgs.Empty);
+
+        IsDisposed = true;
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     public override async ValueTask DisposeAsync()
     {
+        OnDisposing(EventArgs.Empty);
+
         if (streams != null)
         {
 #if NET6_0_OR_GREATER
@@ -465,7 +483,11 @@ public class CombinedSeekStream : CompatibilityStream
 
         await base.DisposeAsync().ConfigureAwait(false);
 
+        OnDisposed(EventArgs.Empty);
+
+        IsDisposed = true;
+
         GC.SuppressFinalize(this);
     }
 #endif
-        }
+}

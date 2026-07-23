@@ -45,7 +45,7 @@ public abstract class NullSafeDictionary<TKey, TValue> : IDictionary<TKey, TValu
     /// </summary>
     public NullSafeDictionary(IEqualityComparer<TKey> Comparer)
     {
-        dictionary = new(Comparer);
+        dictionary = [with(Comparer)];
     }
 
     /// <summary>
