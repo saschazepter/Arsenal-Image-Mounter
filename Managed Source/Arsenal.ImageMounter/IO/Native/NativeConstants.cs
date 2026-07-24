@@ -115,6 +115,11 @@ public static class NativeConstants
     public const uint IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003U;
     public const uint IO_REPARSE_TAG_SYMLINK = 0xA000000C;
 
+    public const uint FSCTL_INITIATE_REPAIR = 0x901A8U;
+    public const uint FSCTL_GET_REPAIR = 0x9019CU;
+    public const uint FSCTL_SET_REPAIR = 0x90198U;
+    public const uint FSCTL_WAIT_FOR_REPAIR = 0x901A0U;
+
     public const uint IOCTL_SCSI_MINIPORT = 0x4D008U;
     public const uint IOCTL_SCSI_GET_ADDRESS = 0x41018U;
     public const uint IOCTL_STORAGE_QUERY_PROPERTY = 0x2D1400U;

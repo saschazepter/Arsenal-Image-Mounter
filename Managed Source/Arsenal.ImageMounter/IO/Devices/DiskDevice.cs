@@ -26,6 +26,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using static Arsenal.ImageMounter.IO.Native.NativeFileIO;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 // #pragma warning disable IDE0057 // Use range operator
@@ -140,19 +141,19 @@ public class DiskDevice : DeviceObject
     /// Retrieves SCSI address for this disk.
     /// </summary>
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
-    public SCSI_ADDRESS? ScsiAddress => NativeFileIO.GetScsiAddress(SafeFileHandle);
+    public SCSI_ADDRESS? ScsiAddress => field ??= NativeFileIO.GetScsiAddress(SafeFileHandle);
 
     /// <summary>
     /// Retrieves storage device type and physical disk number information.
     /// </summary>
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
-    public STORAGE_DEVICE_NUMBER? StorageDeviceNumber => NativeFileIO.GetStorageDeviceNumber(SafeFileHandle);
+    public STORAGE_DEVICE_NUMBER? StorageDeviceNumber => field ??= NativeFileIO.GetStorageDeviceNumber(SafeFileHandle);
 
     /// <summary>
     /// Retrieves StorageStandardProperties information.
     /// </summary>
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
-    public StorageStandardProperties? StorageStandardProperties => NativeFileIO.GetStorageStandardProperties(SafeFileHandle);
+    public StorageStandardProperties? StorageStandardProperties => field ??= NativeFileIO.GetStorageStandardProperties(SafeFileHandle);
 
     /// <summary>
     /// Retrieves TRIM enabled information.
@@ -216,7 +217,7 @@ public class DiskDevice : DeviceObject
             
             byte[]? allocated = null;
             
-            var rawsig = bytesPerSector <= 1024
+            var rawsig = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
             
@@ -252,7 +253,7 @@ public class DiskDevice : DeviceObject
 
             byte[]? allocated = null;
 
-            var rawsig = bytesPerSector <= 1024
+            var rawsig = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 
@@ -284,7 +285,7 @@ public class DiskDevice : DeviceObject
 
             byte[]? allocated = null;
 
-            var rawsig = bytesPerSector <= 1024
+            var rawsig = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 
@@ -315,7 +316,7 @@ public class DiskDevice : DeviceObject
 
             byte[]? allocated = null;
 
-            var rawsig = bytesPerSector <= 1024
+            var rawsig = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 
@@ -455,8 +456,7 @@ public class DiskDevice : DeviceObject
 #endif
     }
 
-    private int ReadBootSector(Span<byte> bootsect)
-        => Read(bootsect, 0);
+    private int ReadBootSector(Span<byte> bootsect) => Read(bootsect, 0);
 
     /// <summary>
     /// Return a value indicating whether present sector 0 data indicates a valid MBR
@@ -470,7 +470,7 @@ public class DiskDevice : DeviceObject
 
             byte[]? allocated = null;
 
-            var bootsect = bytesPerSector <= 1024
+            var bootsect = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 
@@ -505,7 +505,7 @@ public class DiskDevice : DeviceObject
 
             byte[]? allocated = null;
 
-            var bootsect = bytesPerSector <= 1024
+            var bootsect = bytesPerSector < 1024
                 ? stackalloc byte[bytesPerSector]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 
@@ -530,6 +530,17 @@ public class DiskDevice : DeviceObject
             }
         }
     }
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public NtfsRepairMode? NtfsRepairMode
+    {
+        get => NativeFileIO.GetNtfsRepairMode(SafeFileHandle);
+        set => NativeFileIO.SetNtfsRepairMode(SafeFileHandle, value ?? 0);
+    }
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public ValueTask<int> WaitForNtfsRepair(NtfsWaitRepairType waitType, CancellationToken cancellationToken)
+        => NativeFileIO.WaitForNtfsRepair(SafeFileHandle, waitType, cancellationToken);
 
     /// <summary>
     /// Flush buffers for a disk or volume.
@@ -733,14 +744,10 @@ public class DiskDevice : DeviceObject
         adapter.RemoveDevice(scsi_address.DWordDeviceNumber);
     }
 
-    private long? diskSize;
-
     /// <summary>
     /// Retrieves volume size of disk device.
     /// </summary>
-    public long? DiskSize => diskSize ??= NativeStruct.GetDiskSize(SafeFileHandle);
-
-    private FILE_FS_FULL_SIZE_INFORMATION? volumeSizeInformation;
+    public long? DiskSize => field ??= NativeStruct.GetDiskSize(SafeFileHandle);
 
     /// <summary>
     /// Retrieves partition information.
@@ -748,7 +755,7 @@ public class DiskDevice : DeviceObject
     /// <returns></returns>
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
     public FILE_FS_FULL_SIZE_INFORMATION? VolumeSizeInformation
-        => volumeSizeInformation ??= NativeCalls.GetVolumeSizeInformation(SafeFileHandle);
+        => field ??= NativeCalls.GetVolumeSizeInformation(SafeFileHandle);
 
     /// <summary>
     /// Determines whether disk is writable or read-only.
@@ -762,14 +769,11 @@ public class DiskDevice : DeviceObject
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
     public bool CheckVerify => NativeFileIO.CheckVerify(SafeFileHandle);
 
-    private DISK_GEOMETRY? geometry;
-
     /// <summary>
     /// Returns logical disk geometry. Normally, only the BytesPerSector member
     /// contains data of interest.
     /// </summary>
-    public DISK_GEOMETRY? Geometry
-        => geometry ??= NativeStruct.GetDiskGeometry(SafeFileHandle);
+    public DISK_GEOMETRY? Geometry => field ??= NativeStruct.GetDiskGeometry(SafeFileHandle);
 
     /// <summary>
     /// Locks and dismounts filesystem on a volume. Upon successful return, further access to the device
@@ -814,6 +818,7 @@ public class DiskDevice : DeviceObject
     public void SetWriteOverlayDeleteOnClose()
     {
         var rc = API.SetWriteOverlayDeleteOnClose(SafeFileHandle);
+
         if (rc != NativeConstants.NO_ERROR)
         {
             throw new Win32Exception(rc);

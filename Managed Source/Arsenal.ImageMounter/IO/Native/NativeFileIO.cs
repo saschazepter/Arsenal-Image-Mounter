@@ -364,9 +364,25 @@ public static partial class NativeFileIO
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static partial bool GetDiskFreeSpaceW(in char lpRootPathName, out int lpSectorsPerCluster, out int lpBytesPerSector, out int lpNumberOfFreeClusters, out int lpTotalNumberOfClusters);
 
+        [LibraryImport("kernel32", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool GetOverlappedResult(SafeFileHandle hDevice,
+                                                       nint lpOverlapped,
+                                                       out uint lpNumberOfBytesTransferred,
+                                                       [MarshalAs(UnmanagedType.Bool)] bool bWait);
+
+
+        [LibraryImport("kernel32", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool CancelIoEx(SafeFileHandle device, nint lpOverlapped);
+
         [LibraryImport("kernel32", EntryPoint = "DeviceIoControl", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static partial bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, [MarshalAs(UnmanagedType.Bool)] in bool lpInBuffer, uint nInBufferSize, nint lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, nint lpOverlapped);
+
+        [LibraryImport("kernel32", EntryPoint = "DeviceIoControl", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, in ushort lpInBuffer, uint nInBufferSize, nint lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, nint lpOverlapped);
 
         [LibraryImport("kernel32", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -851,7 +867,21 @@ public static partial class NativeFileIO
         internal static extern bool GetDiskFreeSpaceW(in char lpRootPathName, out int lpSectorsPerCluster, out int lpBytesPerSector, out int lpNumberOfFreeClusters, out int lpTotalNumberOfClusters);
 
         [DllImport("kernel32", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetOverlappedResult(SafeFileHandle hDevice,
+                                                      nint lpOverlapped,
+                                                      out uint lpNumberOfBytesTransferred,
+                                                      [MarshalAs(UnmanagedType.Bool)] bool bWait);
+
+        [DllImport("kernel32", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool CancelIoEx(SafeFileHandle device, nint lpOverlapped);
+
+        [DllImport("kernel32", SetLastError = true)]
         internal static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, in bool lpInBuffer, uint nInBufferSize, nint lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, nint lpOverlapped);
+
+        [DllImport("kernel32", SetLastError = true)]
+        internal static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, in ushort lpInBuffer, uint nInBufferSize, nint lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, nint lpOverlapped);
 
         [DllImport("kernel32", SetLastError = true)]
         internal static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, nint lpInBuffer, uint nInBufferSize, ref byte lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, nint lpOverlapped);
@@ -1176,7 +1206,7 @@ public static partial class NativeFileIO
 
             byte[]? allocated = null;
 
-            var indata = bufferSize <= 1024
+            var indata = bufferSize < 1024
                 ? stackalloc byte[bufferSize]
                 : (allocated = ArrayPool<byte>.Shared.Rent(bufferSize)).AsSpan(0, bufferSize);
 
@@ -2855,11 +2885,100 @@ Currently, the following application has files open on this volume:
             Options.HasFlag(FileOptions.Asynchronous));
 
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
-    private static unsafe void SetFileCompressionState(SafeFileHandle SafeFileHandle, ushort State)
+    private static void SetFileCompressionState(SafeFileHandle SafeFileHandle, ushort State)
         => Win32Try(UnsafeNativeMethods.DeviceIoControl(SafeFileHandle,
                                                         NativeConstants.FSCTL_SET_COMPRESSION,
-                                                        (nint)(&State),
+                                                        in State,
                                                         2U,
+                                                        0,
+                                                        0U,
+                                                        out _,
+                                                        0));
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public static async ValueTask<int> WaitForNtfsRepair(SafeFileHandle SafeFileHandle, NtfsWaitRepairType waitType, CancellationToken cancellationToken)
+    {
+        var waitTypeValue = (ushort)waitType;
+
+        using var ioEvent = new ManualResetEvent(initialState: false);
+
+        using var overlapped = new HGlobalBuffer(Unsafe.SizeOf<NativeOverlapped>());
+
+        overlapped.AsSpan().Clear();
+
+        overlapped.AsSpan().CastRef<NativeOverlapped>().EventHandle = ioEvent.SafeWaitHandle.DangerousGetHandle();
+
+        var lpOverlapped = overlapped.DangerousGetHandle();
+
+        var rc = UnsafeNativeMethods.DeviceIoControl(SafeFileHandle,
+                                                        NativeConstants.FSCTL_WAIT_FOR_REPAIR,
+                                                        in waitTypeValue,
+                                                        2U,
+                                                        0,
+                                                        0U,
+                                                        out _,
+                                                        lpOverlapped);
+
+        if (!rc && Marshal.GetLastWin32Error() == NativeConstants.ERROR_IO_PENDING)
+        {
+            cancellationToken.Register(() => UnsafeNativeMethods.CancelIoEx(SafeFileHandle, lpOverlapped));
+
+#pragma warning disable CA2016 // Forward the 'CancellationToken' parameter to methods
+            await ioEvent.WaitAsync().ConfigureAwait(false);
+#pragma warning restore CA2016 // Forward the 'CancellationToken' parameter to methods
+
+            rc = UnsafeNativeMethods.GetOverlappedResult(SafeFileHandle, lpOverlapped, out _, bWait: true);
+        }
+
+        if (!rc)
+        {
+            return Marshal.GetLastWin32Error();
+        }
+
+        return 0;
+    }
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public static unsafe NtfsRepairMode? GetNtfsRepairMode(SafeFileHandle SafeFileHandle)
+    {
+        uint mode = 0;
+
+        var rc = UnsafeNativeMethods.DeviceIoControl(SafeFileHandle,
+                                                        NativeConstants.FSCTL_GET_REPAIR,
+                                                        0,
+                                                        0U,
+                                                        (nint)(&mode),
+                                                        4U,
+                                                        out _,
+                                                        0);
+
+        if (rc)
+        {
+            return unchecked((NtfsRepairMode)mode);
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public static unsafe void SetNtfsRepairMode(SafeFileHandle SafeFileHandle, NtfsRepairMode mode)
+        => Win32Try(UnsafeNativeMethods.DeviceIoControl(SafeFileHandle,
+                                                        NativeConstants.FSCTL_SET_REPAIR,
+                                                        (nint)(&mode),
+                                                        sizeof(ushort),
+                                                        0,
+                                                        0U,
+                                                        out _,
+                                                        0));
+
+    [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
+    public static unsafe void InitiateNtfsRepair(SafeFileHandle SafeFileHandle, ulong mode)
+        => Win32Try(UnsafeNativeMethods.DeviceIoControl(SafeFileHandle,
+                                                        NativeConstants.FSCTL_INITIATE_REPAIR,
+                                                        (nint)(&mode),
+                                                        sizeof(ulong),
                                                         0,
                                                         0U,
                                                         out _,
@@ -3260,7 +3379,7 @@ Currently, the following application has files open on this volume:
 
         byte[]? allocated = null;
 
-        var buffer = StorageDescriptorHeader.Size <= 1024
+        var buffer = StorageDescriptorHeader.Size < 1024
             ? stackalloc byte[StorageDescriptorHeader.Size]
             : (allocated = ArrayPool<byte>.Shared.Rent(StorageDescriptorHeader.Size)).AsSpan(0, StorageDescriptorHeader.Size);
 
@@ -5996,6 +6115,21 @@ Currently, the following application has files open on this volume:
         DeleteFiles = NativeConstants.DRIVER_PACKAGE_DELETE_FILES,
         Force = NativeConstants.DRIVER_PACKAGE_FORCE,
         Silent = NativeConstants.DRIVER_PACKAGE_SILENT
+    }
+
+    public enum NtfsWaitRepairType : ushort
+    {
+        WaitForAllRepairs = 0,
+        WaitForCurrentRepair = 1,
+    }
+
+    [Flags]
+    public enum NtfsRepairMode : ushort
+    {
+        Disabled = 0x00,
+        Enabled = 0x01,
+        WarnDataLoss = 0x08,
+        Bugcheck = 0x10,
     }
 
     [SupportedOSPlatform(NativeConstants.SUPPORTED_WINDOWS_PLATFORM)]
