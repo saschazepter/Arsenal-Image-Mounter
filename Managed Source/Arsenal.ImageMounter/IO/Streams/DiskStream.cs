@@ -93,7 +93,7 @@ public class DiskStream : AligningStream
 
         byte[]? allocated = null;
 
-        var vbr = bytesPerSector <= 1024
+        var vbr = bytesPerSector < 1024
             ? stackalloc byte[bytesPerSector]
             : (allocated = ArrayPool<byte>.Shared.Rent(bytesPerSector)).AsSpan(0, bytesPerSector);
 

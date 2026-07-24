@@ -25,10 +25,8 @@ public static class CollectionExtensions
 {
     private static class StaticHashAlgs<THashAlgorithm> where THashAlgorithm : HashAlgorithm, new()
     {
-        [ThreadStatic]
-        private static THashAlgorithm? instance;
-
-        public static THashAlgorithm Instance => instance ??= new();
+        [field: ThreadStatic]
+        public static THashAlgorithm Instance => field ??= new();
     }
 
     public static string CalculateChecksum<THashAlgorithm>(string file) where THashAlgorithm : HashAlgorithm, new()

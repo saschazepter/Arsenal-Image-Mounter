@@ -467,7 +467,7 @@ public class CachedIniFile : NullSafeDictionary<string, NullSafeDictionary<strin
         {
             Encoding ??= Encoding.Default;
 
-            var sr = new StreamReader(Stream, Encoding, false, 1048576);
+            var sr = new StreamReader(Stream, Encoding, detectEncodingFromByteOrderMarks: false, bufferSize: 1048576);
 
             Load(sr);
 
@@ -491,7 +491,7 @@ public class CachedIniFile : NullSafeDictionary<string, NullSafeDictionary<strin
         {
             Encoding ??= Encoding.Default;
 
-            var sr = new StreamReader(Stream, Encoding, false, 1048576);
+            var sr = new StreamReader(Stream, Encoding, detectEncodingFromByteOrderMarks: false, bufferSize: 1048576);
 
             await LoadAsync(sr, cancellationToken).ConfigureAwait(false);
 
