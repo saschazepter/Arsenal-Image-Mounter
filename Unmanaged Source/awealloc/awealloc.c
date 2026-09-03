@@ -196,7 +196,8 @@ IN PWCHAR Message);
 NTSTATUS
 AWEAllocSetSize(IN POBJECT_CONTEXT Context,
 IN OUT PIO_STATUS_BLOCK IoStatus,
-IN PLARGE_INTEGER EndOfFile);
+IN PLARGE_INTEGER EndOfFile,
+IN PKIRQL LowestAssumedIrql);
 
 const PHYSICAL_ADDRESS physical_address_zero = { 0, 0 };
 const PHYSICAL_ADDRESS physical_address_max64 = { ULONG_MAX, ULONG_MAX };
@@ -983,7 +984,8 @@ IN PIRP Irp)
 
             status = AWEAllocSetSize(context,
                 &io_status,
-                &new_size);
+                &new_size,
+                &lowest_assumed_irql);
 
             if (!NT_SUCCESS(status))
             {
@@ -1097,14 +1099,13 @@ IN PIRP Irp)
         }
         }
 
-        io_stack->FileObject->CurrentByteOffset.QuadPart += bytes_this_iter;
+        io_stack->FileObject->CurrentByteOffset.QuadPart =
+            abs_offset_this_iter + bytes_this_iter;
 
         KdPrint2((__FUNCTION__ ": Copy done.\n"));
 
         length_done += bytes_this_iter;
-
     }
-
 }
 
 VOID
@@ -1222,10 +1223,60 @@ IN PBLOCK_DESCRIPTOR Block)
 }
 
 NTSTATUS
+AWEAllocZeroRange(
+    POBJECT_CONTEXT Context,
+    LONGLONG Offset,
+    LONGLONG Length,
+    PKIRQL LowestAssumedIrql)
+{
+    PAGE_CONTEXT page_context = { 0 };
+    NTSTATUS status = STATUS_SUCCESS;
+
+    while (Length > 0)
+    {
+        ULONG page_offset =
+            AWEAllocGetPageOffsetFromAbsOffset(Offset);
+
+        ULONG length_this_iter =
+            (ULONG)min((ULONGLONG)Length,
+                ALLOC_PAGE_SIZE - page_offset);
+
+        status = AWEAllocMapPage(
+            Context,
+            Offset,
+            &page_context,
+            LowestAssumedIrql);
+
+        if (!NT_SUCCESS(status))
+            break;
+
+        RtlZeroMemory(
+            page_context.Ptr + page_offset,
+            length_this_iter);
+
+        Offset += length_this_iter;
+        Length -= length_this_iter;
+    }
+
+    AWEAllocMapPage(
+        Context,
+        INVALID_OFFSET,
+        &page_context,
+        LowestAssumedIrql);
+
+    return status;
+}
+
+NTSTATUS
 AWEAllocSetSize(IN POBJECT_CONTEXT Context,
 IN OUT PIO_STATUS_BLOCK IoStatus,
-IN PLARGE_INTEGER EndOfFile)
+IN PLARGE_INTEGER EndOfFile,
+IN PKIRQL LowestAssumedIrql)
 {
+    NTSTATUS status = STATUS_SUCCESS;
+
+    LONGLONG old_virtual_size;
+
     KdPrint2((__FUNCTION__ ": Setting size to %u KB.\n",
         (ULONG)(EndOfFile->QuadPart >> 10)));
 
@@ -1261,10 +1312,22 @@ IN PLARGE_INTEGER EndOfFile)
             }
         }
 
+		old_virtual_size = Context->VirtualSize;
+
         Context->VirtualSize = EndOfFile->QuadPart;
-        IoStatus->Status = STATUS_SUCCESS;
+
+        if (EndOfFile->QuadPart > old_virtual_size)
+        {
+            status = AWEAllocZeroRange(
+                Context,
+                old_virtual_size,
+                EndOfFile->QuadPart - old_virtual_size,
+                LowestAssumedIrql);
+        }
+
+        IoStatus->Status = status;
         IoStatus->Information = 0;
-        return STATUS_SUCCESS;
+        return status;
     }
 
     for (;;)
@@ -1274,10 +1337,20 @@ IN PLARGE_INTEGER EndOfFile)
 
         if (AWEAllocGetTotalSize(Context) >= EndOfFile->QuadPart)
         {
+			old_virtual_size = Context->VirtualSize;
+
             Context->VirtualSize = EndOfFile->QuadPart;
-            IoStatus->Status = STATUS_SUCCESS;
+
+            status = AWEAllocZeroRange(
+                Context,
+                old_virtual_size,
+                EndOfFile->QuadPart - old_virtual_size,
+                LowestAssumedIrql);
+
+            IoStatus->Status = status;
             IoStatus->Information = 0;
-            return STATUS_SUCCESS;
+
+            return status;
         }
 
         // If running out of memory, do not attempt to
@@ -1626,7 +1699,8 @@ IN PIRP Irp)
 
         status = AWEAllocSetSize(context,
             &Irp->IoStatus,
-            &feof_info->EndOfFile);
+            &feof_info->EndOfFile,
+            &lowest_assumed_irql);
 
         AWEAllocReleaseProtection(context, FALSE, TRUE, &lowest_assumed_irql);
 
@@ -1734,7 +1808,7 @@ IN BOOLEAN OwnsReadLock)
         return status;
     }
 
-    status = AWEAllocSetSize(Context, IoStatus, &file_standard.EndOfFile);
+    status = AWEAllocSetSize(Context, IoStatus, &file_standard.EndOfFile, &lowest_assumed_irql);
 
     if (!NT_SUCCESS(status))
     {
@@ -1797,12 +1871,13 @@ AWEAllocCleanup(IN POBJECT_CONTEXT Context,
     IN OUT PIO_STATUS_BLOCK IoStatus)
 {
     LARGE_INTEGER zero_size = { 0 };
+    KIRQL lowest_assumed_irql = PASSIVE_LEVEL;
 
     KdPrint((__FUNCTION__ ": Cleanup called.\n"));
     
     PAGED_CODE();
     
-    AWEAllocSetSize(Context, IoStatus, &zero_size);
+    AWEAllocSetSize(Context, IoStatus, &zero_size, &lowest_assumed_irql);
     
     ExFreePoolWithTag(Context, POOL_TAG);
 }
