@@ -570,7 +570,7 @@ __inout __deref PKIRQL LowestAssumedIrql)
 }
 #endif // USE_SCSIPORT
 
-VOID
+NTSTATUS
 ImScsiParallelReadWriteImage(
 __in pMP_WorkRtnParms       pWkRtnParms,
 __inout __deref pResultType pResult,
@@ -684,7 +684,7 @@ __inout __deref PKIRQL      LowestAssumedIrql
             ScsiSetCheckCondition(pWkRtnParms->pSrb, SRB_STATUS_ERROR,
                 SCSI_SENSE_HARDWARE_ERROR, SCSI_ADSENSE_NO_SENSE, 0);
 
-            return;
+            return STATUS_INSUFFICIENT_RESOURCES;
         }
 
         if (function == IRP_MJ_WRITE)
@@ -750,7 +750,7 @@ __inout __deref PKIRQL      LowestAssumedIrql
 
         ScsiSetCheckCondition(pWkRtnParms->pSrb, SRB_STATUS_ERROR, SCSI_SENSE_HARDWARE_ERROR, SCSI_ADSENSE_NO_SENSE, 0);
 
-        return;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     lower_irp->Tail.Overlay.Thread = NULL;
@@ -785,7 +785,7 @@ __inout __deref PKIRQL      LowestAssumedIrql
 
     *pResult = ResultQueued;
 
-    return;
+    return STATUS_PENDING;
 }
 
 NTSTATUS
@@ -873,9 +873,6 @@ ImScsiZeroDevice(
 {
     IO_STATUS_BLOCK io_status = { 0 };
     NTSTATUS status = STATUS_NOT_IMPLEMENTED;
-    LARGE_INTEGER byteoffset;
-
-    byteoffset.QuadPart = Offset->QuadPart + pLUExt->ImageOffset.QuadPart;
 
     KdPrint2((__FUNCTION__ ": pLUExt=%p, Offset=0x%I64X, EffectiveOffset=0x%I64X, Length=0x%X\n",
         pLUExt, *Offset, byteoffset, Length));
@@ -911,9 +908,9 @@ ImScsiZeroDevice(
     }
     else if (pLUExt->ImageFile != NULL)
     {
-        FILE_ZERO_DATA_INFORMATION zerodata;
-        zerodata.FileOffset = *Offset;
-        zerodata.BeyondFinalZero.QuadPart = Offset->QuadPart + Length;
+        FILE_ZERO_DATA_INFORMATION zerodata = { 0 };
+        zerodata.FileOffset.QuadPart = Offset->QuadPart + pLUExt->ImageOffset.QuadPart;
+        zerodata.BeyondFinalZero.QuadPart = zerodata.FileOffset.QuadPart + Length;
 
         status = ZwFsControlFile(
             pLUExt->ImageFile,

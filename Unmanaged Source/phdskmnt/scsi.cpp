@@ -1798,7 +1798,12 @@ __in PKIRQL               LowestAssumedIrql
     {
         // Service work item directly in calling thread context.
 
-        ImScsiParallelReadWriteImage(pWkRtnParms, pResult, LowestAssumedIrql);
+        NTSTATUS status = ImScsiParallelReadWriteImage(pWkRtnParms, pResult, LowestAssumedIrql);
+
+        if (!NT_SUCCESS(status))
+        {
+            ExFreePoolWithTag(pWkRtnParms, MP_TAG_GENERAL);
+        }
     }
     else
     {
