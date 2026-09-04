@@ -667,7 +667,7 @@ __inout __deref PKIRQL      LowestAssumedIrql
             ScsiSetCheckCondition(pWkRtnParms->pSrb, SRB_STATUS_ERROR, SCSI_SENSE_HARDWARE_ERROR,
                 SCSI_ADSENSE_NO_SENSE, 0);
 
-            return;
+            return STATUS_INSUFFICIENT_RESOURCES;
         }
 
         pWkRtnParms->AllocatedBuffer =
