@@ -873,6 +873,9 @@ ImScsiZeroDevice(
 {
     IO_STATUS_BLOCK io_status = { 0 };
     NTSTATUS status = STATUS_NOT_IMPLEMENTED;
+    LARGE_INTEGER byteoffset = { 0 };
+
+    byteoffset.QuadPart = Offset->QuadPart + pLUExt->ImageOffset.QuadPart;
 
     KdPrint2((__FUNCTION__ ": pLUExt=%p, Offset=0x%I64X, EffectiveOffset=0x%I64X, Length=0x%X\n",
         pLUExt, *Offset, byteoffset, Length));
@@ -895,7 +898,7 @@ ImScsiZeroDevice(
     else if (pLUExt->UseProxy)
     {
         DEVICE_DATA_SET_RANGE range = { 0 };
-        range.StartingOffset = Offset->QuadPart;
+        range.StartingOffset = byteoffset.QuadPart;
         range.LengthInBytes = Length;
 
         status = ImScsiUnmapOrZeroProxy(
@@ -909,7 +912,7 @@ ImScsiZeroDevice(
     else if (pLUExt->ImageFile != NULL)
     {
         FILE_ZERO_DATA_INFORMATION zerodata = { 0 };
-        zerodata.FileOffset.QuadPart = Offset->QuadPart + pLUExt->ImageOffset.QuadPart;
+        zerodata.FileOffset = byteoffset;
         zerodata.BeyondFinalZero.QuadPart = zerodata.FileOffset.QuadPart + Length;
 
         status = ZwFsControlFile(
