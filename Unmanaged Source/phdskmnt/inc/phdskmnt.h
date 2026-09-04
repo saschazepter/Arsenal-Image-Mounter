@@ -918,7 +918,7 @@ extern "C" {
     IO_COMPLETION_ROUTINE
         ImScsiParallelReadWriteImageCompletion;
 
-    VOID
+    NTSTATUS
         ImScsiParallelReadWriteImage(
             __in pMP_WorkRtnParms       pWkRtnParms,
             __inout __deref pResultType pResult,
@@ -1000,21 +1000,7 @@ extern "C" {
     VOID ImScsiScheduleWorkItem(pMP_WorkRtnParms pWkRtnParms,
         PKIRQL LowestAssumedIrql);
 
-    FORCEINLINE
-        BOOLEAN
-        ImScsiIsBufferZero(PVOID Buffer, ULONG Length)
-    {
-        PULONGLONG ptr;
-
-        if (Length < sizeof(ULONGLONG))
-            return FALSE;
-
-        for (ptr = (PULONGLONG)Buffer;
-        (ptr <= (PULONGLONG)((PUCHAR)Buffer + Length - sizeof(ULONGLONG))) &&
-            (*ptr == 0); ptr++);
-
-            return (BOOLEAN)(ptr == (PULONGLONG)((PUCHAR)Buffer + Length));
-    }
+#define ImScsiIsBufferZero(Buffer, Length) (RtlCompareMemoryUlong(Buffer, Length, 0) == Length)
 
 #if DBG
 
