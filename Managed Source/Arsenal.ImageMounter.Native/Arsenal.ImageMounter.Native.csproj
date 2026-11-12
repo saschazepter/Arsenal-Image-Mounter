@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-	<TargetFramework>net10.0</TargetFramework>
+	<TargetFramework>net11.0</TargetFramework>
 	<Description>Arsenal Image Mounter Native Library dependencies</Description>
 	<PackageId>ArsenalRecon.ImageMounter.Native</PackageId>
 	<IncludeBuildOutput>false</IncludeBuildOutput>
